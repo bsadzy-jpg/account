@@ -1,0 +1,20 @@
+# Local Android output and machine configuration
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/toolchain.local.ps1
+*.jks
+*.keystore
+*.p12
+*.pem
+.env
+.env.*
+!*.example
+node_modules/
+*.log
+*备份*.json
+*ledger*.json
+有数-1.0.0-debug.apk
+有数-1.1.0-debug.apk
+有数-1.2.0-debug.apk

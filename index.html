@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f7f4">
+  <meta name="description" content="有数，一本为生活留余地的轻账本。数据留在本机。">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>有数 · 为生活留一点余地</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./core.js" defer></script>
+  <script src="./ai-core.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主内容</a>
+  <aside class="sidebar">
+    <a href="#overview" class="brand" aria-label="有数首页"><span class="brand-symbol" aria-hidden="true"><i></i><i></i><i></i></span><span>有数</span></a>
+    <nav class="navigation" aria-label="主导航">
+      <button data-view="overview" class="nav-button active"><span data-icon="home"></span><span>首页</span></button>
+      <button data-view="ledger" class="nav-button"><span data-icon="wallet"></span><span>明细</span><span id="nav-review" class="nav-count" hidden></span></button>
+      <button data-view="plans" class="nav-button"><span data-icon="sprout"></span><span>计划</span></button>
+      <button data-view="settings" class="nav-button"><span data-icon="sliders"></span><span>我的</span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button class="book-button" data-action="book"><span class="avatar">数</span><span><strong id="book-name">我的账本</strong><small id="book-mode">本机保存</small></span><span data-icon="chevron"></span></button>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="app-header">
+      <div class="mobile-brand"><span class="brand-symbol" aria-hidden="true"><i></i><i></i><i></i></span><strong>有数</strong></div>
+      <div class="header-context"><strong id="view-label">首页</strong><span class="local-pill"><i></i><span id="storage-label">数据留在本机</span></span></div>
+      <div class="header-actions"><label class="month-control"><span data-icon="calendar"></span><input type="month" id="month" aria-label="查看月份"></label><button class="icon-button" data-action="help" aria-label="使用说明"><span data-icon="help"></span></button></div>
+    </header>
+    <main id="main" tabindex="-1">
+      <div id="mode-banner" class="mode-banner" hidden></div>
+      <div id="view-content"></div>
+    </main>
+  </div>
+  <nav class="bottom-nav" aria-label="移动端主导航">
+    <button data-view="overview" class="bottom-nav-button active"><span data-icon="home"></span><span>首页</span></button>
+    <button data-view="ledger" class="bottom-nav-button"><span data-icon="wallet"></span><span>明细</span></button>
+    <button class="bottom-add" data-action="quick-actions" aria-label="打开记账操作"><span data-icon="plus"></span><span>记账</span></button>
+    <button data-view="plans" class="bottom-nav-button"><span data-icon="sprout"></span><span>计划</span></button>
+    <button data-view="settings" class="bottom-nav-button"><span data-icon="sliders"></span><span>我的</span></button>
+  </nav>
+  <dialog id="dialog" aria-labelledby="dialog-title"><div class="dialog-top"><div><p class="eyebrow" id="dialog-kicker">YOUSHU</p><h2 id="dialog-title"></h2></div><button class="icon-button" id="close-dialog" aria-label="关闭弹窗"><span data-icon="close"></span></button></div><div id="dialog-body"></div></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

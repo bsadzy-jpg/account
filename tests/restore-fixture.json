@@ -1,0 +1,36 @@
+{
+  "version": 4,
+  "name": "恢复测试账本",
+  "income": null,
+  "goal": {
+    "name": "测试心愿",
+    "amount": 1000
+  },
+  "budgets": [
+    {
+      "id": "fixture-rent",
+      "title": "测试房租",
+      "category": "居住",
+      "price": 2000,
+      "count": 1,
+      "frequency": "monthly",
+      "protected": true
+    }
+  ],
+  "transactions": [
+    {
+      "id": "fixture-transaction",
+      "date": "2026-09-01",
+      "title": "测试房租",
+      "amount": 2000,
+      "category": "居住",
+      "type": "expense",
+      "review": false,
+      "source": "合成恢复测试",
+      "externalKey": ""
+    }
+  ],
+  "learned": {},
+  "plans": {},
+  "imports": []
+}

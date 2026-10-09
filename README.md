@@ -75,4 +75,3 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'
 ```
 
 把该值仅填入 Netlify 变量和自己手机的连接设置。函数会检查凭据、限制请求体、校验模型输出，并设有每 IP 限速；它不连接 Supabase，不保存账本或图片，也不记录请求正文。DeepSeek 和 Netlify 的用量可能产生费用。部署和真实 API 调用需要在你自己的 Netlify 站点完成，本地测试不等于线上服务已经启用。
-
