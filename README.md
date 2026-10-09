@@ -66,12 +66,12 @@ GitHub 用作源码和 APK 的发布渠道，不保存用户账本或凭据。�
 
 ## 配置个人 Netlify 后端
 
-仓库中的 `netlify/functions/parse-expense.mjs` 是唯一在线服务；`netlify.toml` 只发布一个空目录和此函数，不托管账本网页。推荐为“有数”创建独立 Netlify 站点并连接此仓库。函数地址为 `https://你的站点.netlify.app/api/parse-expense`。如果复用其他项目的 Netlify 站点，需要将函数部署进那个站点的源码；环境变量不会自动跨站点共享。
+仓库中的 `netlify/functions/parse-expense.mjs` 是唯一在线服务；`netlify.toml` 只发布一个空目录和此函数，不托管账本网页。为“有数”建立独立 Netlify 站点并连接 GitHub 仓库 `bsadzy-jpg/account` 的 `main` 分支。导入仓库时无需填写构建命令，仓库根目录的配置会指定发布目录与函数目录。函数地址为 `https://你的站点.netlify.app/api/parse-expense`。
 
-在该站点的环境变量中设置 `DEEPSEEK_API_KEY`（你的 DeepSeek Key）和 `YOUSHU_ACCESS_TOKEN`（独立的、至少 32 位随机访问凭据）。请通过 Netlify UI/CLI/API 设置，不要写进 `netlify.toml` 或 GitHub。可在自己电脑上生成访问凭据：
+在独立站点的环境变量中设置 `DEEPSEEK_API_KEY`（你的 DeepSeek Key）和 `YOUSHU_ACCESS_TOKEN`（独立的、至少 32 位随机访问凭据）；两者的作用范围都要包含 Functions。变量不会从 `travel` 站点自动继承。请通过 Netlify UI/CLI/API 设置，不要写进 `netlify.toml` 或 GitHub。可在自己电脑上生成访问凭据：
 
 ```powershell
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-把该值仅填入 Netlify 变量和自己手机的连接设置。函数会检查凭据、限制请求体、校验模型输出，并设有每 IP 限速；它不连接 Supabase，不保存账本或图片，也不记录请求正文。DeepSeek 和 Netlify 的用量可能产生费用。部署和真实 API 调用需要在你自己的 Netlify 站点完成，本地测试不等于线上服务已经启用。
+把该值仅填入 Netlify 变量和自己手机的连接设置。保存变量后重新部署站点，再到 App 的“我的 → 智能记账服务”输入站点地址与访问凭据。函数会检查凭据、限制请求体、校验模型输出，并设有每 IP 限速；它不连接 Supabase，不保存账本或图片，也不记录请求正文。DeepSeek 和 Netlify 的用量可能产生费用。部署和真实 API 调用需要在你自己的 Netlify 站点完成，本地测试不等于线上服务已经启用。
