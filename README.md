@@ -1,6 +1,6 @@
 # 有数
 
-“有数”是一款独立、离线优先的轻量记账与生活预算工具。它不属于“鲜颜库”，不登录支付账户，也不会把完整账本上传到服务器。Android 版可选连接个人 Netlify Function，让 DeepSeek 整理主动输入的文字或选择的图片；DeepSeek Key 不进入 APK。
+“有数”是一款独立、离线优先的轻量记账与生活预算工具。它不属于“鲜颜库”，不登录支付账户，也不会把完整账本上传到服务器。Android 版由每位使用者填写自己的 DeepSeek API Key，仅在主动智能整理时直接请求 DeepSeek；Key 不预置在 APK 中。
 
 ## 打开方式
 
@@ -21,7 +21,7 @@
 ## 已实现
 
 - 手机优先的“首页、明细、记账、计划、我的”结构；桌面端使用窄侧栏，手机端使用固定底部导航。
-- “记账”是全局操作入口，可从任意页面一次点击打开一句话记账、图片整理、手动记账和账单导入。Android 版连接个人 Netlify 站点后使用 DeepSeek；浏览器预览继续使用本地规则。
+- “记账”是全局操作入口，可从任意页面一次点击打开一句话记账、图片整理、手动记账和账单导入。Android 版填写自己的 DeepSeek API Key 后使用智能整理；浏览器预览继续使用本地规则。
 - 首页首屏集中显示净支出、收入、预算剩余、导入/待确认操作和最近明细；流水在手机端按日期分组。
 - “计划”集中管理固定预算、心愿和省钱试算；试算项目默认收起，只展开当前选择项。
 - 任意月度或周度重复开销、保留项标记、当前预算模板与月份筛选。
@@ -45,15 +45,15 @@
 - 同日同金额仅作为重复候选；受支持来源的唯一交易号可辅助确认重复。部分退款即使共用订单号也不会直接被吞掉。
 - 周频率按 `52 ÷ 12` 折算为平均月金额；历史月份使用当前预算模板作为参考。
 
-当前版本的核心计算和 Netlify 函数均有自动化测试，执行 `node --test tests/*.test.mjs`。
+当前版本的核心计算和 AI 草稿校验均有自动化测试，执行 `node --test tests/*.test.mjs`。
 
 ## Android APK
 
-- 可直接安装的调试签名包：`有数-1.3.0-debug.apk`（版本 1.3.0，versionCode 4）。
+- 可直接安装的调试签名包：`有数-1.4.0-debug.apk`（版本 1.4.0，versionCode 5）。
 - 应用包名：`com.youshu.budget`；最低 Android 7.0（API 24），目标 Android 16（API 36）。
-- APK 内嵌全部网页文件；账本保存在应用 WebView 的本机存储中。网络权限仅用于用户主动发起的 Netlify HTTPS 请求，不从 GitHub 运行时加载页面。
-- 在“我的 → 智能记账服务”填写个人 `https://…netlify.app` 站点和访问凭据。凭据由 Android Keystore 加密保存，不在源码、备份或 GitHub 中。DeepSeek Key 只在 Netlify 环境变量里。AI 返回的是待确认草稿，确认前可修改、取消；模糊条目默认不勾选。
-- 图片在设备上压缩为 JPEG 并去除原图元数据，再经 Netlify 发送给 DeepSeek；图片不会进入账本备份。选择图片即授权此次发送，请避免上传不希望交给外部服务的隐私图片。
+- APK 内嵌全部网页文件；账本保存在应用 WebView 的本机存储中。网络权限仅用于用户主动发起的 DeepSeek HTTPS 请求，不从 GitHub 运行时加载页面。
+- 在“我的 → DeepSeek 智能记账”填写使用者自己的 DeepSeek API Key。Key 由 Android Keystore 加密保存在当前设备的应用私有存储，不会回显、进入源码、账本备份或 GitHub；App 直接向 `https://api.deepseek.com/chat/completions` 请求，不需要 Netlify、Supabase 或额外访问令牌。更换设备需重新填写 Key。调用可能产生 DeepSeek 费用。
+- AI 返回的是待确认草稿，确认前可修改、取消；模糊条目默认不勾选。图片在设备上压缩为 JPEG 并去除原图元数据，再直接发送给 DeepSeek；图片不会进入账本备份。选择图片即授权此次发送，请避免上传不希望交给外部服务的隐私图片。
 - 浏览器账本与 APK 账本不会自动共享。迁移时请先在原端导出 JSON，再到另一端选择“恢复备份”。
 - APK 中的备份导出会打开 Android 系统“另存为”；CSV/TXT 导入及 JSON 恢复使用系统文件选择器。
 - 本机重新构建：在 PowerShell 设置 `YOUSHU_ANDROID_TOOLCHAIN` 为 Android SDK、Gradle 和 JDK 的本地工具链目录，再运行 `android/build-apk.ps1`。本机也可使用不提交到 GitHub 的 `android/toolchain.local.ps1` 设置 `$toolchain`。脚本执行离线构建与 Lint，不会发布应用。
@@ -64,14 +64,6 @@
 
 GitHub 用作源码和 APK 的发布渠道，不保存用户账本或凭据。在项目目录运行 `update-from-github.ps1` 拉取更新；仓库中的 APK 可下载安装，同一包名和签名的新版会覆盖安装而保留本机数据。安装前仍建议导出 JSON 备份。不要把 `.env`、签名密钥或账本备份提交到仓库。
 
-## 配置个人 Netlify 后端
+## 旧 Netlify 站点
 
-仓库中的 `netlify/functions/parse-expense.mjs` 是唯一在线服务；`netlify.toml` 只发布一个空目录和此函数，不托管账本网页。为“有数”建立独立 Netlify 站点并连接 GitHub 仓库 `bsadzy-jpg/account` 的 `main` 分支。导入仓库时无需填写构建命令，仓库根目录的配置会指定发布目录与函数目录。函数地址为 `https://你的站点.netlify.app/api/parse-expense`。
-
-在独立站点的环境变量中设置 `DEEPSEEK_API_KEY`（你的 DeepSeek Key）和 `YOUSHU_ACCESS_TOKEN`（独立的、至少 32 位随机访问凭据）；两者的作用范围都要包含 Functions。变量不会从 `travel` 站点自动继承。请通过 Netlify UI/CLI/API 设置，不要写进 `netlify.toml` 或 GitHub。可在自己电脑上生成访问凭据：
-
-```powershell
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-```
-
-把该值仅填入 Netlify 变量和自己手机的连接设置。保存变量后重新部署站点，再到 App 的“我的 → 智能记账服务”输入站点地址与访问凭据。函数会检查凭据、限制请求体、校验模型输出，并设有每 IP 限速；它不连接 Supabase，不保存账本或图片，也不记录请求正文。DeepSeek 和 Netlify 的用量可能产生费用。部署和真实 API 调用需要在你自己的 Netlify 站点完成，本地测试不等于线上服务已经启用。
+旧方案创建的 `youshu-account.netlify.app` 不再被 App 使用。仓库保留 `netlify.toml` 指向空发布目录，是为了避免该已连接站点在 GitHub 更新后把仓库源码作为网页公开；在线函数已从仓库移除。不会自动删除站点或清理其历史环境变量。如曾在旧站点填写 DeepSeek Key，请自行到 Netlify 控制台移除；不要把 Key 提交到 GitHub。

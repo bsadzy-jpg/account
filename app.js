@@ -83,7 +83,7 @@
     $('dialog').classList.remove('action-dialog');
     if (!$('dialog').open) $('dialog').showModal(); hydrateIcons();
   }
-  function close() { if ($('ai-token-input')) $('ai-token-input').value = ''; imageTaskId++; aiRequestId++; $('dialog').close(); preview = null; }
+  function close() { if ($('ai-key-input')) $('ai-key-input').value = ''; imageTaskId++; aiRequestId++; $('dialog').close(); preview = null; }
   function hydrateIcons() { document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
   function enabledSaving() { return C.sum(state().budgets.map(b => { const p = C.experiment(b, state().plans[b.id]); return p.enabled ? p.saving : 0; })); }
   function render() {
@@ -98,14 +98,14 @@
     $('month').value = month; $('month').parentElement.hidden = view === 'settings' || view === 'plans';
     document.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('active', b.dataset.view === view); if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     $('view-content').innerHTML = view === 'overview' ? overview(totals) : view === 'ledger' ? ledger(totals) : view === 'plans' ? plans() : settings();
-    if (view === 'settings') $('view-content').insertAdjacentHTML('afterbegin', `<section class="section-card ai-settings"><div><span>${icon('spark')}</span><div><strong>智能记账服务</strong><small>${globalThis.AndroidBridge?.hasAiConnection?.() ? `已连接 ${esc(globalThis.AndroidBridge.aiSite())}` : '尚未连接 Netlify · 本地规则仍可用'}</small></div></div><button class="secondary" data-action="ai-settings">设置</button></section>`);
+    if (view === 'settings') $('view-content').insertAdjacentHTML('afterbegin', `<section class="section-card ai-settings"><div><span>${icon('spark')}</span><div><strong>DeepSeek 智能记账</strong><small>${globalThis.AndroidBridge?.hasAiKey?.() ? '已保存自己的 API Key · 可使用智能整理' : '尚未填写 API Key · 本地规则仍可用'}</small></div></div><button class="secondary" data-action="ai-settings">设置</button></section>`);
     hydrateIcons();
   }
   function go(next) { if (!['overview', 'ledger', 'plans', 'settings'].includes(next)) return; view = next; page = 0; render(); window.scrollTo({ top: 0 }); }
   function quickActions() {
     modal('说一句，有数帮你记', `<div class="action-sheet-list">
       <form id="quick-form" class="quick-sheet-form"><label class="field">今天发生了什么<textarea id="quick-input" aria-label="一句话记账" placeholder="例如：昨天聚餐我付了238，朋友转回100" maxlength="1000" required>${esc(pendingText)}</textarea></label><button class="primary full-width" type="submit">${icon('spark')} 智能整理，先预览</button><button class="text-button" type="button" data-action="local-parse">只用本地规则识别</button></form>
-      <button class="sheet-action" data-action="image-pick"><span>${icon('upload')}</span><span><strong>选账单或收据图片</strong><small>选中后会压缩并发送，返回草稿供你确认</small></span>${icon('chevron')}</button>
+      <button class="sheet-action" data-action="image-pick"><span>${icon('upload')}</span><span><strong>选账单或收据图片</strong><small>选中后会压缩并发给 DeepSeek，返回草稿供你确认</small></span>${icon('chevron')}</button>
       <input class="native-file" id="image-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
       <button class="sheet-action" data-action="transaction-add"><span>${icon('edit')}</span><span><strong>手动记账</strong><small>自己填写日期、金额和分类</small></span>${icon('chevron')}</button>
       <button class="sheet-action" data-action="import"><span>${icon('upload')}</span><span><strong>导入账单</strong><small>支持 CSV / TXT，先预览再入账</small></span>${icon('chevron')}</button>
@@ -114,9 +114,8 @@
     setTimeout(() => $('quick-input')?.focus(), 0);
   }
   function aiSettings() {
-    const supported = !!globalThis.AndroidBridge?.saveAiConnection;
-    const site = globalThis.AndroidBridge?.aiSite?.() || '';
-    modal('连接智能记账', `<p class="dialog-intro">${supported ? 'DeepSeek Key 只存放在 Netlify 站点变量里。手机首次连接后，可发送主动输入的文字或选择的图片；账本、预算和历史流水仍留在本机。' : '浏览器预览只提供本地规则识别。Netlify 智能整理可在 Android APK 中连接。'}</p>${supported ? `<form id="ai-connection-form"><label class="field">有数 Netlify 站点地址<input id="ai-site-input" type="url" inputmode="url" placeholder="https://你的站点.netlify.app" value="${esc(site)}" required></label><label class="field">访问凭据<input id="ai-token-input" type="password" autocomplete="off" spellcheck="false" placeholder="Netlify 中设置的 YOUSHU_ACCESS_TOKEN" required></label><p class="notice">访问凭据由 Android Keystore 加密保存；不是 DeepSeek Key，不会进入账本备份或 GitHub。保存后首次使用时验证连接。</p><div class="dialog-actions"><button class="secondary" type="button" data-action="ai-connection-clear">断开连接</button><button class="primary">保存连接</button></div></form>` : '<button class="secondary" data-action="close">知道了</button>'}`);
+    const supported = !!globalThis.AndroidBridge?.saveAiKey;
+    modal('设置 DeepSeek 智能记账', `<p class="dialog-intro">${supported ? '填写你自己的 DeepSeek API Key，App 会直接向 DeepSeek 发送你主动输入的文字或选择的图片。完整账本、预算和历史流水仍留在本机。' : '浏览器预览只提供本地规则识别。Android APK 可填写自己的 DeepSeek API Key 使用智能整理。'}</p>${supported ? `<form id="ai-key-form"><label class="field">DeepSeek API Key<input id="ai-key-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴你自己的 DeepSeek API Key" required></label><p class="notice">Key 由 Android Keystore 加密保存在这台设备，不会进入账本备份或 GitHub；App 不会显示已保存的 Key。保存后首次智能整理时验证，调用可能产生 DeepSeek 费用。</p><div class="dialog-actions"><button class="secondary" type="button" data-action="ai-key-clear">删除本机 Key</button><button class="primary">保存 Key</button></div></form>` : '<button class="secondary" data-action="close">知道了</button>'}`);
   }
   function localQuick(text) {
     const parsed = C.parseQuick(text, state().learned);
@@ -128,9 +127,9 @@
     let request;
     try { request = A.textRequest(pendingText, C.localDate()); } catch (error) { toast(error.message); return; }
     if (!globalThis.AndroidBridge?.parseAi) { localQuick(pendingText); toast('浏览器预览使用本地规则；APK 可配置 DeepSeek。'); return; }
-    if (!globalThis.AndroidBridge.hasAiConnection()) { aiSettings(); toast('先连接有数 Netlify 服务。'); return; }
+    if (!globalThis.AndroidBridge.hasAiKey()) { aiSettings(); toast('先填写自己的 DeepSeek API Key。'); return; }
     const id = ++aiRequestId;
-    modal('正在整理这句话', '<p class="dialog-intro">正经由 Netlify 连接 DeepSeek。不会发送完整账本；整理结果不会自动入账。</p><p class="notice">请稍候…</p>');
+    modal('正在整理这句话', '<p class="dialog-intro">正在直接请求 DeepSeek。不会发送完整账本；整理结果不会自动入账。</p><p class="notice">请稍候…</p>');
     globalThis.AndroidBridge.parseAi(JSON.stringify(request), id);
   }
   function compressImage(file) {
@@ -163,9 +162,9 @@
   async function smartImage(file) {
     pendingText = '';
     if (!globalThis.AndroidBridge?.parseAi) { toast('图片智能整理目前只在 Android APK 中可用。'); return; }
-    if (!globalThis.AndroidBridge.hasAiConnection()) { aiSettings(); toast('先连接有数 Netlify 服务，再重新选择图片。'); return; }
+    if (!globalThis.AndroidBridge.hasAiKey()) { aiSettings(); toast('先填写自己的 DeepSeek API Key，再重新选择图片。'); return; }
     const task = ++imageTaskId;
-    modal('正在处理图片', '<p class="dialog-intro">先在本机缩小图片，再经 Netlify 发送给 DeepSeek。不会上传整本账。</p><p class="notice">请稍候…</p>');
+    modal('正在处理图片', '<p class="dialog-intro">先在本机缩小图片，再直接发送给 DeepSeek。不会上传整本账。</p><p class="notice">请稍候…</p>');
     try {
       const request = A.imageRequest(await compressImage(file), C.localDate());
       if (task !== imageTaskId || !$('dialog').open) return;
@@ -329,7 +328,7 @@
     $('restore-file').onchange = async e => { const file = e.target.files[0]; if (!file) return; try { if (file.size > 25 * 1024 * 1024) throw new Error('备份超过 25 MB。'); const incoming = JSON.parse(await file.text()); if (!C.validateState(incoming)) throw new Error('备份字段不完整或数据无效，未修改原账本。'); modal('确认恢复这个账本', `<p class="dialog-intro">${esc(incoming.name)}：${incoming.budgets.length} 项预算、${incoming.transactions.length} 笔流水。恢复将替换真实账本${real ? '，同时下载当前账本备份' : ''}。</p><div class="dialog-actions"><button class="secondary" data-action="close">取消</button><button class="primary" id="confirm-restore">确认恢复</button></div>`); $('confirm-restore').onclick = () => { if (real) download(JSON.stringify(real, null, 2), `有数-恢复前备份-${C.localDate()}.json`, 'application/json'); real = incoming; mode = 'real'; migrated = false; persist(); close(); go('overview'); toast('账本已恢复'); }; } catch (err) { $('restore-error').textContent = err.message || '无法读取备份'; } };
   }
   function help() {
-    modal('每天少一点操作，每月多一点清楚', `<div class="help-copy"><p><strong>说一句或选一张图。</strong>Android 版连接你的 Netlify 服务后，可把主动输入的文字或选中的图片交给 DeepSeek 整理。结果先预览、可改可取消，不会自动入账。</p><p><strong>本地也能记。</strong>“昨天午饭32，打车28”可用本地规则离线识别；CSV / TXT 账单也在本机解析。</p><p><strong>账本留在设备。</strong>预算、历史流水、分类偏好不发送给 Netlify 或 DeepSeek。更换设备前在“我的”导出 JSON 备份。</p><p><strong>计划不是付款。</strong>固定预算不会自动记成消费；省钱试算不代表钱已经存下。</p><p><strong>仍需确认。</strong>图片可能看不清，模型也可能识别错误。尤其核对金额、日期、退款、充值与重复交易。</p></div>`);
+    modal('每天少一点操作，每月多一点清楚', `<div class="help-copy"><p><strong>说一句或选一张图。</strong>Android 版填写自己的 DeepSeek API Key 后，可把主动输入的文字或选中的图片直接交给 DeepSeek 整理。结果先预览、可改可取消，不会自动入账。</p><p><strong>本地也能记。</strong>“昨天午饭32，打车28”可用本地规则离线识别；CSV / TXT 账单也在本机解析。</p><p><strong>账本留在设备。</strong>预算、历史流水、分类偏好不发送给 DeepSeek。更换设备前在“我的”导出 JSON 备份。</p><p><strong>计划不是付款。</strong>固定预算不会自动记成消费；省钱试算不代表钱已经存下。</p><p><strong>仍需确认。</strong>图片可能看不清，模型也可能识别错误。尤其核对金额、日期、退款、充值与重复交易。</p></div>`);
   }
   document.addEventListener('click', e => {
     const nav = e.target.closest('[data-view]'); if (nav) { go(nav.dataset.view); return; }
@@ -338,7 +337,7 @@
     const b = e.target.closest('[data-action]'); if (!b) return; const action = b.dataset.action, id = b.dataset.id;
     const actions = {
       close, help, onboard: onboarding, import: importDialog, goal: goalForm, profile: profileForm, restore: restoreDialog, 'quick-actions': quickActions, 'ai-settings': aiSettings,
-      'ai-connection-clear': () => { globalThis.AndroidBridge?.clearAiConnection?.(); aiSettings(); toast('已断开智能记账服务'); },
+      'ai-key-clear': () => { globalThis.AndroidBridge?.clearAiKey?.(); aiSettings(); toast('已删除这台设备保存的 DeepSeek Key'); },
       'image-pick': () => $('image-file')?.click(),
       'local-parse': () => localQuick($('quick-input')?.value || pendingText),
       'budget-add': () => budgetForm(), 'budget-edit': () => budgetForm(id),
@@ -361,11 +360,11 @@
     actions[action]?.();
   });
   document.addEventListener('submit', e => {
-    if (e.target.id === 'ai-connection-form') {
+    if (e.target.id === 'ai-key-form') {
       e.preventDefault();
-      if (!globalThis.AndroidBridge?.saveAiConnection?.($('ai-site-input').value, $('ai-token-input').value)) { toast('请使用 https://…netlify.app 站点和至少 32 位随机配对凭据。'); return; }
-      $('ai-token-input').value = '';
-      close(); toast('连接已保存，首次使用时验证');
+      if (!globalThis.AndroidBridge?.saveAiKey?.($('ai-key-input').value)) { toast('Key 保存失败，请检查格式后重试。'); return; }
+      $('ai-key-input').value = '';
+      close(); toast('Key 已保存在本机，首次使用时验证');
       if (pendingText) smartQuick(pendingText);
       else render();
       return;
@@ -395,7 +394,7 @@
     const position = e.target.selectionStart; query = e.target.value; page = 0; render(); const input = $('ledger-search'); input.focus(); if (position !== null) input.setSelectionRange(position, position);
   });
   $('close-dialog').onclick = close;
-  $('dialog').addEventListener('cancel', () => { preview = null; imageTaskId++; aiRequestId++; if ($('ai-token-input')) $('ai-token-input').value = ''; });
+  $('dialog').addEventListener('cancel', () => { preview = null; imageTaskId++; aiRequestId++; if ($('ai-key-input')) $('ai-key-input').value = ''; });
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
   hydrateIcons(); render();
 })();

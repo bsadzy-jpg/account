@@ -174,16 +174,13 @@ public class MainActivity extends Activity {
 
     public final class AndroidBridge {
         @JavascriptInterface
-        public boolean hasAiConnection() { return aiService.isConnected(); }
+        public boolean hasAiKey() { return aiService.hasKey(); }
 
         @JavascriptInterface
-        public boolean saveAiConnection(String site, String token) { return aiService.saveConnection(site, token); }
+        public boolean saveAiKey(String key) { return aiService.saveKey(key); }
 
         @JavascriptInterface
-        public void clearAiConnection() { aiService.clearConnection(); }
-
-        @JavascriptInterface
-        public String aiSite() { return aiService.siteName(); }
+        public void clearAiKey() { aiService.clearKey(); }
 
         @JavascriptInterface
         public void parseAi(String requestJson, int requestId) {

@@ -13,7 +13,7 @@ $androidSdk = Join-Path $toolchain 'android-sdk'
 $gradleHome = Join-Path $toolchain 'gradle-home'
 $gradle = Join-Path $toolchain 'gradle\gradle-8.14.3\bin\gradle.bat'
 $builtApk = Join-Path $PSScriptRoot 'app\build\outputs\apk\debug\app-debug.apk'
-$deliveryApk = Join-Path (Split-Path $PSScriptRoot -Parent) '有数-1.3.0-debug.apk'
+$deliveryApk = Join-Path (Split-Path $PSScriptRoot -Parent) '有数-1.4.0-debug.apk'
 
 foreach ($required in @($javaHome, $androidSdk, $gradle)) {
     if (-not (Test-Path -LiteralPath $required)) {

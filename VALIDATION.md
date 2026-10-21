@@ -77,3 +77,13 @@
 - 函数使用 `deepseek-flash` 图片输入；DeepSeek Key 只从 Netlify 环境变量读取，App 只保存加密的访问凭据。图片先在设备上压缩为 JPEG，再生成可编辑的待确认草稿。
 - 已核对 DeepSeek 当前图片输入格式、Netlify 函数自定义路径、限速配置及请求体限制；这些检查不等于线上部署或真实请求通过。
 - 尚未在实体 Android 设备上验证系统图片选择器、WebView 储存和到 Netlify 的请求；尚未配置 Netlify 站点变量，因而未进行真实 DeepSeek 调用。
+
+## 每位使用者自填 DeepSeek Key 与 Android 1.4.0（2026-10-21）
+
+- Android 原生层改为直接请求 `https://api.deepseek.com/chat/completions`；每位使用者在 App 内填写自己的 Key，密文保存在应用私有存储，加密密钥由 Android Keystore 管理。网页层没有读取已保存 Key 的接口，旧 Netlify 配对凭据不作迁移。
+- 只发送主动输入的文字或压缩后的 JPEG 图片；模型结果继续经过客户端草稿校验和人工确认，不自动入账。仓库移除了 Netlify 函数，保留空发布目录配置，避免已有 Netlify 站点误发布仓库内容。
+- `node --check app.js`、`node --check ai-core.js` 与 `node --test tests/*.test.mjs`：全部通过，12/12 项测试通过。
+- `android/build-apk.ps1`：离线 `assembleDebug` 和 `lintDebug` 均通过，生成 `有数-1.4.0-debug.apk`。
+- APK 包名 `com.youshu.budget`，版本 1.4.0（versionCode 5），最低 API 24、目标 API 36；`INTERNET` 是唯一声明的权限。APK 包含最新网页资源。
+- APK v2 调试签名验证通过，证书 SHA-256 与 1.3.0 相同：`3f3ff2a603721ad977eb8d8a7d30e7af8321b6c68853c900947a97714a6a7302`。APK SHA-256：`480FB7D1E11D860EF1160E8EE4F65A1133E2EB177B647F8284BA2C9A0F609701`。
+- 未在实体 Android 设备上安装或用真实 DeepSeek Key 发起请求；Key 保存、系统图片选择器、直连 API 和旧版覆盖安装仍需手机端验证。
