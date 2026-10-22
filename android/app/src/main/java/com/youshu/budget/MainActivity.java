@@ -38,6 +38,8 @@ public class MainActivity extends Activity {
     private String pendingContent;
     private Object backCallback;
     private AiService aiService;
+    private volatile boolean destroyed;
+    private boolean backPending;
 
     @Override
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -109,8 +111,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        if (savedInstanceState == null) webView.loadUrl(APP_URL);
-        else webView.restoreState(savedInstanceState);
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) webView.loadUrl(APP_URL);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             backCallback = Api33Back.register(this, this::handleBack);
@@ -155,20 +156,35 @@ public class MainActivity extends Activity {
     }
 
     private void handleBack() {
-        if (webView.canGoBack()) webView.goBack();
-        else finish();
+        if (destroyed || backPending) return;
+        backPending = true;
+        webView.evaluateJavascript(
+                "(function(){try{return !!(window.YoushuApp && window.YoushuApp.handleBack && window.YoushuApp.handleBack());}catch(e){return false;}})()",
+                handled -> {
+                    backPending = false;
+                    if (destroyed || isFinishing() || "true".equals(handled)) return;
+                    if (webView.canGoBack()) webView.goBack();
+                    else finish();
+                });
     }
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
+        if (aiService != null) aiService.shutdown();
+        if (fileChooserCallback != null) {
+            fileChooserCallback.onReceiveValue(null);
+            fileChooserCallback = null;
+        }
+        pendingContent = null;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backCallback != null) {
             Api33Back.unregister(this, backCallback);
         }
         if (webView != null) {
             webView.removeJavascriptInterface("AndroidBridge");
             webView.destroy();
+            webView = null;
         }
-        if (aiService != null) aiService.shutdown();
         super.onDestroy();
     }
 
@@ -183,16 +199,20 @@ public class MainActivity extends Activity {
         public void clearAiKey() { aiService.clearKey(); }
 
         @JavascriptInterface
+        public void cancelAi(int requestId) { aiService.cancel(requestId); }
+
+        @JavascriptInterface
         public void parseAi(String requestJson, int requestId) {
             aiService.parse(requestJson, requestId, (id, ok, message) -> runOnUiThread(() -> {
-                if (webView != null) webView.evaluateJavascript(
-                        "window.YoushuAI.receive(" + id + "," + ok + "," + JSONObject.quote(message) + ")", null);
+                if (!destroyed && !isFinishing() && webView != null) webView.evaluateJavascript(
+                        "window.YoushuAI && window.YoushuAI.receive(" + id + "," + ok + "," + JSONObject.quote(message) + ")", null);
             }));
         }
 
         @JavascriptInterface
         public void saveFile(String content, String filename, String mimeType) {
             runOnUiThread(() -> {
+                if (destroyed || isFinishing()) return;
                 pendingContent = content;
                 Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);

@@ -110,6 +110,19 @@
     })) return 'possible';
     return '';
   }
+  function refreshDrafts(rows, existing, editedId = '') {
+    const seen = [...existing]; let changed = false;
+    rows.forEach(row => {
+      const previousDuplicate = row.duplicate, previousSelected = row.selected;
+      const duplicate = duplicateStatus(row, seen);
+      row.duplicate = duplicate;
+      if (row.selected === undefined) row.selected = !duplicate && !row.review;
+      if (duplicate === 'exact' || (duplicate && (duplicate !== previousDuplicate || row.id === editedId))) row.selected = false;
+      if (row.duplicate !== previousDuplicate || row.selected !== previousSelected) changed = true;
+      seen.push(row);
+    });
+    return changed;
+  }
   function emptyState() { return { version: 4, name: '我的账本', income: null, goal: { name: '给自己留一点余地', amount: 3000 }, budgets: [], transactions: [], learned: {}, plans: {}, imports: [] }; }
   function personalBudgets(v = {}) {
     const n = (key, fallback) => Number.isFinite(Number(v[key])) && Number(v[key]) >= 0 ? Number(v[key]) : fallback;
@@ -146,5 +159,5 @@
     if (!s.plans || typeof s.plans !== 'object' || Array.isArray(s.plans) || !Object.values(s.plans).every(p => p && positive(p.count) && positive(p.alternate) && typeof p.enabled === 'boolean')) return false;
     return Array.isArray(s.imports) && s.imports.every(i => typeof i === 'string');
   }
-  globalThis.MoneyCore = { categories, types, round, sum, localDate, validDate, parseDate, uid, categoryFor, monthly, summary, experiment, parseQuick, csvRows, fingerprint, parseStatement, duplicateStatus, emptyState, personalBudgets, demoState, validateState };
+  globalThis.MoneyCore = { categories, types, round, sum, localDate, validDate, parseDate, uid, categoryFor, monthly, summary, experiment, parseQuick, csvRows, fingerprint, parseStatement, duplicateStatus, refreshDrafts, emptyState, personalBudgets, demoState, validateState };
 })();

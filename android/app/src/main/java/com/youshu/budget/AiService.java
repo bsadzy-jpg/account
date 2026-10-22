@@ -11,14 +11,19 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -43,6 +48,9 @@ final class AiService {
 
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Object requestLock = new Object();
+    private final Map<Integer, Request> requests = new HashMap<>();
+    private boolean closed;
 
     AiService(Context context) { this.context = context.getApplicationContext(); }
 
@@ -69,59 +77,145 @@ final class AiService {
     }
 
     synchronized void clearKey() {
+        cancelAll();
         prefs().edit().clear().commit();
         clearLegacyConnection();
     }
 
     void parse(String body, int id, Callback callback) {
-        executor.execute(() -> {
-            if (body == null || body.length() > 2_900_000) {
-                callback.done(id, false, "输入或图片过大，请缩短内容后重试。"); return;
-            }
-            if (!hasKey()) {
-                callback.done(id, false, "请先在“我的”填写自己的 DeepSeek API Key。"); return;
-            }
-            HttpsURLConnection connection = null;
-            try {
-                JSONObject request = modelRequest(new JSONObject(body));
-                byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
-                if (bytes.length > MAX_REQUEST_BYTES) throw new IllegalArgumentException("图片过大，请换一张更小的图片。");
-
-                connection = (HttpsURLConnection) new URL(ENDPOINT).openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setRequestMethod("POST");
-                connection.setConnectTimeout(15_000);
-                connection.setReadTimeout(50_000);
-                connection.setDoOutput(true);
-                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                connection.setRequestProperty("Authorization", "Bearer " + readKey());
-                connection.setFixedLengthStreamingMode(bytes.length);
-                try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
-
-                int status = connection.getResponseCode();
-                if (status == 401 || status == 403) throw new IllegalStateException("DeepSeek API Key 无效或无权调用，请在“我的”重新设置。");
-                if (status == 402) throw new IllegalStateException("DeepSeek 账号余额不足，请到 DeepSeek 平台查看。");
-                if (status == 413) throw new IllegalStateException("图片过大，请换一张更小的图片。");
-                if (status == 429) throw new IllegalStateException("DeepSeek 请求过于频繁，请稍后重试。");
-                if (status < 200 || status >= 300) throw new IllegalStateException("DeepSeek 暂不可用（HTTP " + status + "）。");
-
-                JSONObject response = new JSONObject(readLimited(connection.getInputStream()));
-                JSONObject choice = response.getJSONArray("choices").getJSONObject(0);
-                if (!"stop".equals(choice.optString("finish_reason"))) throw new IllegalStateException("智能整理结果不完整，请缩短内容重试。");
-                String content = choice.getJSONObject("message").getString("content");
-                JSONObject draft = new JSONObject(content);
-                if (!draft.has("transactions") || !draft.has("questions")) throw new IllegalStateException("智能整理结果格式不正确，请重试。");
-                callback.done(id, true, draft.toString());
-            } catch (Exception error) {
-                String message;
-                if (error instanceof IllegalStateException || error instanceof IllegalArgumentException) message = error.getMessage();
-                else message = "网络连接或智能整理失败，请检查网络、Key 和输入后重试。";
-                callback.done(id, false, message);
-            } finally { if (connection != null) connection.disconnect(); }
-        });
+        Request request = new Request(body, id, callback);
+        Request previous;
+        synchronized (requestLock) {
+            if (closed) return;
+            previous = requests.put(id, request);
+            executor.execute(request.future);
+        }
+        if (previous != null) previous.cancel();
     }
 
-    void shutdown() { executor.shutdownNow(); }
+    void cancel(int id) {
+        Request request;
+        synchronized (requestLock) { request = requests.remove(id); }
+        if (request != null) request.cancel();
+    }
+
+    private void perform(Request pending) {
+        String body = pending.body;
+        HttpsURLConnection connection = null;
+        try {
+            requireActive(pending);
+            if (body == null || body.length() > 2_900_000) {
+                throw new IllegalArgumentException("输入或图片过大，请缩短内容后重试。");
+            }
+            if (!hasKey()) {
+                throw new IllegalStateException("请先在“我的”填写自己的 DeepSeek API Key。");
+            }
+            JSONObject request = modelRequest(new JSONObject(body));
+            byte[] bytes = request.toString().getBytes(StandardCharsets.UTF_8);
+            if (bytes.length > MAX_REQUEST_BYTES) throw new IllegalArgumentException("图片过大，请换一张更小的图片。");
+
+            requireActive(pending);
+            connection = (HttpsURLConnection) new URL(ENDPOINT).openConnection();
+            pending.attach(connection);
+            connection.setInstanceFollowRedirects(false);
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(50_000);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Authorization", "Bearer " + readKey());
+            connection.setFixedLengthStreamingMode(bytes.length);
+            requireActive(pending);
+            try (OutputStream output = connection.getOutputStream()) { output.write(bytes); }
+
+            requireActive(pending);
+            int status = connection.getResponseCode();
+            if (status == 401 || status == 403) throw new IllegalStateException("DeepSeek API Key 无效或无权调用，请在“我的”重新设置。");
+            if (status == 402) throw new IllegalStateException("DeepSeek 账号余额不足，请到 DeepSeek 平台查看。");
+            if (status == 413) throw new IllegalStateException("图片过大，请换一张更小的图片。");
+            if (status == 429) throw new IllegalStateException("DeepSeek 请求过于频繁，请稍后重试。");
+            if (status < 200 || status >= 300) throw new IllegalStateException("DeepSeek 暂不可用（HTTP " + status + "）。");
+
+            JSONObject response = new JSONObject(readLimited(connection.getInputStream(), pending));
+            JSONObject choice = response.getJSONArray("choices").getJSONObject(0);
+            if (!"stop".equals(choice.optString("finish_reason"))) throw new IllegalStateException("智能整理结果不完整，请缩短内容重试。");
+            String content = choice.getJSONObject("message").getString("content");
+            JSONObject draft = new JSONObject(content);
+            if (!draft.has("transactions") || !draft.has("questions")) throw new IllegalStateException("智能整理结果格式不正确，请重试。");
+            deliver(pending, true, draft.toString());
+        } catch (Exception error) {
+            String message;
+            if (error instanceof IllegalStateException || error instanceof IllegalArgumentException) message = error.getMessage();
+            else message = "网络连接或智能整理失败，请检查网络、Key 和输入后重试。";
+            deliver(pending, false, message);
+        } finally {
+            pending.detach();
+            if (connection != null) connection.disconnect();
+            synchronized (requestLock) {
+                if (requests.get(pending.id) == pending) requests.remove(pending.id);
+            }
+        }
+    }
+
+    void shutdown() {
+        synchronized (requestLock) { closed = true; }
+        cancelAll();
+        executor.shutdownNow();
+    }
+
+    private void cancelAll() {
+        ArrayList<Request> pending;
+        synchronized (requestLock) {
+            pending = new ArrayList<>(requests.values());
+            requests.clear();
+        }
+        for (Request request : pending) request.cancel();
+    }
+
+    private void deliver(Request pending, boolean ok, String message) {
+        synchronized (requestLock) {
+            if (closed || pending.cancelled || requests.get(pending.id) != pending) return;
+        }
+        pending.callback.done(pending.id, ok, message);
+    }
+
+    private static void requireActive(Request pending) throws InterruptedIOException {
+        if (pending.cancelled || Thread.currentThread().isInterrupted()) throw new InterruptedIOException();
+    }
+
+    private final class Request {
+        final String body;
+        final int id;
+        final Callback callback;
+        final FutureTask<Void> future;
+        volatile boolean cancelled;
+        private HttpsURLConnection connection;
+
+        Request(String body, int id, Callback callback) {
+            this.body = body;
+            this.id = id;
+            this.callback = callback;
+            future = new FutureTask<>(() -> { perform(this); return null; });
+        }
+
+        synchronized void attach(HttpsURLConnection value) throws InterruptedIOException {
+            requireActive(this);
+            connection = value;
+        }
+
+        synchronized void detach() { connection = null; }
+
+        void cancel() {
+            HttpsURLConnection active;
+            synchronized (this) {
+                cancelled = true;
+                active = connection;
+                connection = null;
+            }
+            future.cancel(true);
+            if (active != null) active.disconnect();
+        }
+    }
 
     private SharedPreferences prefs() { return context.getSharedPreferences(PREF, Context.MODE_PRIVATE); }
 
@@ -165,10 +259,11 @@ final class AiService {
                         .put(new JSONObject().put("role", "user").put("content", userContent)));
     }
 
-    private static String readLimited(InputStream input) throws Exception {
+    private static String readLimited(InputStream input, Request pending) throws Exception {
         try (InputStream stream = input; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[4096]; int count;
             while ((count = stream.read(buffer)) != -1) {
+                requireActive(pending);
                 if (output.size() + count > MAX_RESPONSE_BYTES) throw new IllegalStateException("智能整理结果过长，请缩短内容。");
                 output.write(buffer, 0, count);
             }

@@ -49,17 +49,22 @@
     }
   }
   let month = C.localDate().slice(0, 7), demo = C.demoState(month), view = 'overview', filter = 'all', query = '', page = 0;
-  let planTab = 'budgets', expandedPlan = '', preview = null, toastTimer, undo = null, pendingText = '', aiRequestId = 0, imageTaskId = 0;
+  let planTab = 'budgets', expandedPlan = '', preview = null, toastTimer, undo = null, pendingText = '', pendingImage = null, settingsReturn = '', aiBusy = false, aiRequestId = 0, imageTaskId = 0;
   globalThis.YoushuAI = { receive(id, ok, payload) {
     if (id !== aiRequestId) return;
-    if (!ok) { modal('智能整理未完成', `<p class="dialog-intro">${esc(payload)}</p><div class="dialog-actions"><button class="secondary" data-action="quick-actions">返回输入</button>${pendingText ? '<button class="primary" data-action="local-parse">试试本地识别</button>' : ''}</div>`); return; }
+    aiBusy = false;
+    if (!ok) { aiFailure(payload); return; }
     try {
       const result = A.parse(JSON.parse(payload));
-      if (!result.rows.length) { modal('还需要补充一点', `<p class="dialog-intro">没有足够信息生成一笔完整流水。</p>${result.questions.map(q => `<p class="notice">${esc(q)}</p>`).join('')}<div class="dialog-actions"><button class="primary" data-action="quick-actions">继续描述</button></div>`); return; }
-      pendingText = '';
+      if (!result.rows.length) { modal('还需要补充一点', `<p class="dialog-intro">${pendingImage ? '图片里没有足够信息生成完整流水，可换一张更清晰的图片。' : '原话还在，补充以下信息后可以再整理。'}</p>${result.questions.map(q => `<p class="notice">${esc(q)}</p>`).join('')}<div class="dialog-actions"><button class="primary" data-action="ai-return">${pendingImage ? '返回图片' : '补充原话'}</button></div>`); return; }
       preview = { rows: result.rows, fingerprint: '', from: 'ai', rejected: result.questions, skipped: 0, page: 0 };
       preparePreview();
-    } catch (error) { modal('智能整理未完成', `<p class="dialog-intro">${esc(error.message)}</p><div class="dialog-actions"><button class="primary" data-action="quick-actions">返回输入</button></div>`); }
+    } catch (error) { aiFailure(error.message); }
+  } };
+  globalThis.YoushuApp = { handleBack() {
+    if ($('dialog').open) { close(); return true; }
+    if (view !== 'overview') { go('overview'); return true; }
+    return false;
   } };
   const state = () => mode === 'demo' ? demo : real;
   function persist() {
@@ -79,11 +84,14 @@
     if (message) toast(mode === 'demo' ? `${message} · 仅在示例中体验` : message, old ? () => { if (originalMode !== mode) return toast('账本已切换，撤销未执行。'); if (mode === 'demo') demo = old; else real = old; persist(); render(); toast('已撤销'); } : null);
   }
   function modal(title, html, wide = false) {
+    if ($('quick-input')) pendingText = $('quick-input').value;
+    if ($('ai-key-input')) $('ai-key-input').value = '';
     $('dialog-title').textContent = title; $('dialog-body').innerHTML = html; $('dialog').classList.toggle('wide-dialog', wide);
     $('dialog').classList.remove('action-dialog');
     if (!$('dialog').open) $('dialog').showModal(); hydrateIcons();
   }
-  function close() { if ($('ai-key-input')) $('ai-key-input').value = ''; imageTaskId++; aiRequestId++; $('dialog').close(); preview = null; }
+  function cancelAI() { if (aiBusy) globalThis.AndroidBridge?.cancelAi?.(aiRequestId); aiBusy = false; aiRequestId++; }
+  function close() { if ($('quick-input')) pendingText = $('quick-input').value; if ($('ai-key-input')) $('ai-key-input').value = ''; imageTaskId++; cancelAI(); pendingImage = null; document.querySelector('.image-preview')?.removeAttribute('src'); settingsReturn = ''; $('dialog').close(); preview = null; }
   function hydrateIcons() { document.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
   function enabledSaving() { return C.sum(state().budgets.map(b => { const p = C.experiment(b, state().plans[b.id]); return p.enabled ? p.saving : 0; })); }
   function render() {
@@ -98,14 +106,17 @@
     $('month').value = month; $('month').parentElement.hidden = view === 'settings' || view === 'plans';
     document.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('active', b.dataset.view === view); if (b.dataset.view === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     $('view-content').innerHTML = view === 'overview' ? overview(totals) : view === 'ledger' ? ledger(totals) : view === 'plans' ? plans() : settings();
-    if (view === 'settings') $('view-content').insertAdjacentHTML('afterbegin', `<section class="section-card ai-settings"><div><span>${icon('spark')}</span><div><strong>DeepSeek 智能记账</strong><small>${globalThis.AndroidBridge?.hasAiKey?.() ? '已保存自己的 API Key · 可使用智能整理' : '尚未填写 API Key · 本地规则仍可用'}</small></div></div><button class="secondary" data-action="ai-settings">设置</button></section>`);
+    if (view === 'settings') $('view-content').insertAdjacentHTML('afterbegin', `<section class="section-card ai-settings"><div><span>${icon('spark')}</span><div><strong>DeepSeek 智能记账</strong><small>${globalThis.AndroidBridge?.hasAiKey?.() ? '已保存 Key · 首次整理时验证' : '尚未填写 API Key · 本地规则仍可用'}</small></div></div><button class="secondary" data-action="ai-settings">设置</button></section>`);
     hydrateIcons();
   }
   function go(next) { if (!['overview', 'ledger', 'plans', 'settings'].includes(next)) return; view = next; page = 0; render(); window.scrollTo({ top: 0 }); }
   function quickActions() {
+    cancelAI(); imageTaskId++; pendingImage = null;
+    const native = !!globalThis.AndroidBridge?.parseAi, ready = native && globalThis.AndroidBridge.hasAiKey();
     modal('说一句，有数帮你记', `<div class="action-sheet-list">
-      <form id="quick-form" class="quick-sheet-form"><label class="field">今天发生了什么<textarea id="quick-input" aria-label="一句话记账" placeholder="例如：昨天聚餐我付了238，朋友转回100" maxlength="1000" required>${esc(pendingText)}</textarea></label><button class="primary full-width" type="submit">${icon('spark')} 智能整理，先预览</button><button class="text-button" type="button" data-action="local-parse">只用本地规则识别</button></form>
-      <button class="sheet-action" data-action="image-pick"><span>${icon('upload')}</span><span><strong>选账单或收据图片</strong><small>选中后会压缩并发给 DeepSeek，返回草稿供你确认</small></span>${icon('chevron')}</button>
+      <p class="entry-status">${icon(ready ? 'spark' : 'lock')}${ready ? 'DeepSeek 已配置 · 整理后由你确认入账' : native ? '填入自己的 Key 可用 AI，简单记账也可离线' : '浏览器使用本地规则 · AI 整理在 Android 版中使用'}</p>
+      <form id="quick-form" class="quick-sheet-form"><label class="field">今天发生了什么<textarea id="quick-input" aria-label="一句话记账" placeholder="例如：昨天午饭32，今天打车28" maxlength="1000" required>${esc(pendingText)}</textarea></label><div class="input-meta"><small>日期、金额、用途，说清楚就好</small><span id="quick-count">${pendingText.length}/1000</span></div><button class="primary full-width" type="submit">${icon(native ? 'spark' : 'check')} ${native ? ready ? '智能整理，先预览' : '设置 Key 并智能整理' : '本地识别，先预览'}</button>${native ? '<button class="text-button" type="button" data-action="local-parse">只用本地规则识别</button>' : ''}</form>
+      <button class="sheet-action" data-action="image-pick"><span>${icon('upload')}</span><span><strong>选账单或收据图片</strong><small>先预览图片，点“开始识别”后才发送</small></span>${icon('chevron')}</button>
       <input class="native-file" id="image-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
       <button class="sheet-action" data-action="transaction-add"><span>${icon('edit')}</span><span><strong>手动记账</strong><small>自己填写日期、金额和分类</small></span>${icon('chevron')}</button>
       <button class="sheet-action" data-action="import"><span>${icon('upload')}</span><span><strong>导入账单</strong><small>支持 CSV / TXT，先预览再入账</small></span>${icon('chevron')}</button>
@@ -113,12 +124,15 @@
     $('dialog').classList.add('action-dialog');
     setTimeout(() => $('quick-input')?.focus(), 0);
   }
-  function aiSettings() {
+  function aiSettings(returnTo = '') {
+    settingsReturn = returnTo;
     const supported = !!globalThis.AndroidBridge?.saveAiKey;
-    modal('设置 DeepSeek 智能记账', `<p class="dialog-intro">${supported ? '填写你自己的 DeepSeek API Key，App 会直接向 DeepSeek 发送你主动输入的文字或选择的图片。完整账本、预算和历史流水仍留在本机。' : '浏览器预览只提供本地规则识别。Android APK 可填写自己的 DeepSeek API Key 使用智能整理。'}</p>${supported ? `<form id="ai-key-form"><label class="field">DeepSeek API Key<input id="ai-key-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴你自己的 DeepSeek API Key" required></label><p class="notice">Key 由 Android Keystore 加密保存在这台设备，不会进入账本备份或 GitHub；App 不会显示已保存的 Key。保存后首次智能整理时验证，调用可能产生 DeepSeek 费用。</p><div class="dialog-actions"><button class="secondary" type="button" data-action="ai-key-clear">删除本机 Key</button><button class="primary">保存 Key</button></div></form>` : '<button class="secondary" data-action="close">知道了</button>'}`);
+    const hasKey = !!globalThis.AndroidBridge?.hasAiKey?.();
+    modal('设置 DeepSeek 智能记账', `<p class="dialog-intro">${supported ? '填写你自己的 DeepSeek API Key，用来整理你输入的文字或选中的图片。每次调用的费用由你的 DeepSeek 账户承担。' : '浏览器预览只提供本地规则识别。Android APK 可填写自己的 DeepSeek API Key 使用智能整理。'}</p>${supported ? `<p class="notice">${hasKey ? '本机已保存 Key。输入新 Key 可替换，原 Key 不会回显。' : '在 DeepSeek 开放平台创建 API Key 后，复制到下方。'}</p><form id="ai-key-form"><label class="field">DeepSeek API Key<input id="ai-key-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴你自己的 DeepSeek API Key" required></label><p class="notice">Key 加密保存在这台设备，不进入账本备份。保存只更新设置，首次整理时验证是否可用。</p><div class="dialog-actions">${hasKey ? '<button class="secondary" type="button" data-action="ai-key-clear">删除本机 Key</button>' : ''}<button class="primary">${returnTo ? '保存并返回记账' : '保存 Key'}</button></div></form>` : '<button class="secondary" data-action="close">知道了</button>'}`);
   }
   function localQuick(text) {
-    const parsed = C.parseQuick(text, state().learned);
+    pendingText = String(text || '').trim(); pendingImage = null;
+    const parsed = C.parseQuick(pendingText, state().learned);
     if (!parsed.rows.length) { toast('本地规则未识别；可试试“午饭32，打车28”，或手动记账。'); return; }
     preview = { rows: parsed.rows, fingerprint: '', from: 'quick', rejected: parsed.rejected, skipped: 0, page: 0 }; preparePreview();
   }
@@ -126,11 +140,30 @@
     pendingText = String(text || '').trim();
     let request;
     try { request = A.textRequest(pendingText, C.localDate()); } catch (error) { toast(error.message); return; }
-    if (!globalThis.AndroidBridge?.parseAi) { localQuick(pendingText); toast('浏览器预览使用本地规则；APK 可配置 DeepSeek。'); return; }
-    if (!globalThis.AndroidBridge.hasAiKey()) { aiSettings(); toast('先填写自己的 DeepSeek API Key。'); return; }
+    if (!globalThis.AndroidBridge?.parseAi) { localQuick(pendingText); return; }
+    if (!globalThis.AndroidBridge.hasAiKey()) { aiSettings('text'); return; }
+    cancelAI();
     const id = ++aiRequestId;
-    modal('正在整理这句话', '<p class="dialog-intro">正在直接请求 DeepSeek。不会发送完整账本；整理结果不会自动入账。</p><p class="notice">请稍候…</p>');
+    aiBusy = true;
+    modal('正在整理这句话', '<div class="ai-progress" role="status"><span class="loading-dot"></span><p>正在整理日期、金额和收支方向…</p></div><p class="dialog-intro">整理后先检查，不会自动入账。原话暂留在本次会话中。</p><div class="dialog-actions"><button class="secondary" data-action="ai-return">取消并返回输入</button></div>');
     globalThis.AndroidBridge.parseAi(JSON.stringify(request), id);
+  }
+  function aiFailure(message) {
+    modal('智能整理未完成', `<p class="dialog-intro">${esc(message)}</p><p class="notice">${pendingImage ? '图片暂留在当前窗口，可重试，无需重新选择。' : '原话已保留，可以修改或改用本地规则。'}</p><div class="recovery-actions"><button class="primary" data-action="ai-retry">重试整理</button><button class="secondary" data-action="ai-return">${pendingImage ? '返回图片' : '修改原话'}</button><button class="text-button" data-action="ai-fix-key">检查 API Key</button>${!pendingImage && pendingText ? '<button class="text-button" data-action="local-parse">改用本地规则</button>' : ''}</div>`);
+  }
+  function returnToInput() { cancelAI(); preview = null; if (pendingImage) imagePreview(); else quickActions(); }
+  function imagePreview() {
+    if (!pendingImage) { quickActions(); return; }
+    modal('检查图片，再开始识别', `<p class="dialog-intro">让金额和日期清晰可见。点“开始识别”后，这张压缩图片会直接发送给 DeepSeek。</p><img class="image-preview" src="${pendingImage.image}" alt="待识别的账单图片"><p class="notice">图片只暂留在当前窗口，不进入账本备份。识别后先核对流水再入账。</p><input id="image-file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden><div class="dialog-actions"><button class="secondary" data-action="image-pick">换一张</button><button class="primary" data-action="image-send">开始识别</button></div>`);
+  }
+  function sendImage() {
+    if (!pendingImage) return;
+    if (!globalThis.AndroidBridge?.parseAi) { toast('图片智能整理需在 Android APK 中使用。'); return; }
+    if (!globalThis.AndroidBridge.hasAiKey()) { aiSettings('image'); return; }
+    cancelAI();
+    const id = ++aiRequestId; aiBusy = true;
+    modal('正在识别图片', '<div class="ai-progress" role="status"><span class="loading-dot"></span><p>正在读取图片，生成待确认流水…</p></div><p class="dialog-intro">结果出来后，请核对金额、日期和收支方向。</p><div class="dialog-actions"><button class="secondary" data-action="ai-return">取消并返回图片</button></div>');
+    globalThis.AndroidBridge.parseAi(JSON.stringify({ ...pendingImage, today: C.localDate() }), id);
   }
   function compressImage(file) {
     return new Promise((resolve, reject) => {
@@ -160,17 +193,14 @@
     });
   }
   async function smartImage(file) {
-    pendingText = '';
-    if (!globalThis.AndroidBridge?.parseAi) { toast('图片智能整理目前只在 Android APK 中可用。'); return; }
-    if (!globalThis.AndroidBridge.hasAiKey()) { aiSettings(); toast('先填写自己的 DeepSeek API Key，再重新选择图片。'); return; }
+    cancelAI();
     const task = ++imageTaskId;
-    modal('正在处理图片', '<p class="dialog-intro">先在本机缩小图片，再直接发送给 DeepSeek。不会上传整本账。</p><p class="notice">请稍候…</p>');
+    modal('正在处理图片', '<p class="dialog-intro">在本机压缩图片，接下来可预览，还没有发送。</p><p class="notice" role="status">请稍候…</p>');
     try {
       const request = A.imageRequest(await compressImage(file), C.localDate());
       if (task !== imageTaskId || !$('dialog').open) return;
-      const id = ++aiRequestId;
-      modal('正在识别图片', '<p class="dialog-intro">正在生成待确认的记账草稿。图片不会保存在有数账本中。</p><p class="notice">请稍候…</p>');
-      globalThis.AndroidBridge.parseAi(JSON.stringify(request), id);
+      pendingImage = request;
+      imagePreview();
     } catch (error) { if (task === imageTaskId) modal('图片处理未完成', `<p class="dialog-intro">${esc(error.message)}</p><div class="dialog-actions"><button class="primary" data-action="quick-actions">返回记账</button></div>`); }
   }
   function overview(t) {
@@ -280,12 +310,16 @@
   }
   function importDialog() {
     modal('把账单交给有数整理', `<p class="dialog-intro">选择已导出的 CSV / TXT。识别后先预览，可调整分类和方向，再统一入账。示例模式中的导入不会写进真实账本。</p><label class="field">这份账单来自<select id="import-source">${options(['通用', '支付宝', '微信', '银行卡'], '通用')}</select></label><input id="import-file" class="native-file" type="file" accept=".csv,.txt" aria-label="选择本地账单"><div class="import-options"><label>文件编码 <select id="import-encoding"><option value="utf-8">UTF-8</option><option value="gb18030">GB18030 / GBK</option></select></label><button class="text-button" data-action="sample">下载示例 CSV ${icon('download')}</button></div><div class="notice settings-section">需要日期、商户或商品描述、金额。建议有收支方向和交易单号。暂不支持 XLSX、PDF、截图；不同平台格式可能需要整理。单文件限 5 MB、5000 笔。</div><p id="import-error" class="error-message" role="alert"></p>`);
-    $('import-file').onchange = async e => {
-      const file = e.target.files[0]; if (!file) return;
+    const input = $('import-file'); let readTask = 0;
+    input.onchange = async e => {
+      const task = ++readTask, file = e.target.files[0];
+      const active = () => task === readTask && $('import-file') === input && $('dialog').open;
+      if (!file || !active()) return;
       const encoding = $('import-encoding').value, source = $('import-source').value;
       try {
         if (file.size > 5 * 1024 * 1024) throw new Error('文件超过 5 MB，请拆分账单后导入。');
         const text = new TextDecoder(encoding, { fatal: true }).decode(await file.arrayBuffer());
+        if (!active()) return;
         const result = C.parseStatement(text, state().learned);
         if (result.rows.length > 5000) throw new Error('一次最多导入 5000 笔，请拆分账单。');
         const fileKey = result.fingerprint;
@@ -293,26 +327,51 @@
         result.rows.forEach(t => { t.source = source; t.externalKey = `file:${fileKey}:${t.rowIndex}`; });
         preview = { rows: result.rows, fingerprint: fileKey, from: 'file', rejected: result.rejected, skipped: result.skipped, page: 0 };
         preparePreview();
-      } catch (err) { $('import-error').textContent = err instanceof TypeError ? '文件编码无法读取，试试 GB18030 / GBK 后重新选择文件。' : err.message; }
-      e.target.value = '';
+      } catch (err) { if (active()) $('import-error').textContent = err instanceof TypeError ? '文件编码无法读取，试试 GB18030 / GBK 后重新选择文件。' : err.message; }
+      if (active()) input.value = '';
     };
   }
   function preparePreview() {
-    const seen = [...state().transactions];
-    preview.rows.forEach(t => { t.duplicate = C.duplicateStatus(t, seen); t.selected = !t.duplicate && !t.review; seen.push(t); });
+    C.refreshDrafts(preview.rows, state().transactions);
     renderPreview();
+  }
+  function draftReason(t) { return t.duplicate === 'exact' ? '相同交易标识，已入账' : t.duplicate === 'possible' ? '与另一笔同日、同描述、同金额，请核对后勾选' : t.review ? t.reason || '信息不完整，请核对后勾选' : t.reason || '请确认日期、金额和方向'; }
+  function refreshPreview(editedId = '') {
+    const changed = C.refreshDrafts(preview.rows, state().transactions, editedId);
+    const selected = preview.rows.filter(t => t.selected && t.duplicate !== 'exact');
+    document.querySelectorAll('[data-preview="selected"]').forEach(el => {
+      const row = preview.rows[Number(el.dataset.index)];
+      el.checked = row.selected; el.disabled = row.duplicate === 'exact';
+      const card = el.closest('.preview-card');
+      card.classList.toggle('needs-review', !!row.duplicate || row.review);
+      card.querySelector('.draft-reason').textContent = draftReason(row);
+      card.querySelector('.draft-status').textContent = row.duplicate ? row.duplicate === 'exact' ? '已入账' : '重复候选' : row.review ? '需核对' : '待确认';
+    });
+    $('preview-save').textContent = `确认加入 ${selected.length} 笔`;
+    $('preview-summary').textContent = `${selected.length} 笔已勾选 · 支出 ${money(C.sum(selected.filter(t => t.type === 'expense').map(t => t.amount)))} · 收入 ${money(C.sum(selected.filter(t => t.type === 'income').map(t => t.amount)))}`;
+    $('draft-counts').textContent = `${preview.rows.filter(t => t.review).length} 笔需核对 · ${preview.rows.filter(t => t.duplicate).length} 笔重复候选`;
+    return changed;
   }
   function renderPreview() {
     const p = preview, start = p.page * 30;
-    modal('检查一下，确认后入账', `<p class="dialog-intro">识别出 ${p.rows.length} 笔。未确定或疑似重复的记录默认不勾选；确认无误后可选入。同日同金额不代表同一笔消费。</p><div class="import-counts"><span class="tag green">${p.rows.filter(t => !t.review && !t.duplicate).length} 笔可直接确认</span><span class="tag amber">${p.rows.filter(t => t.review).length} 笔需要核对</span><span class="tag gray">${p.rows.filter(t => t.duplicate).length} 笔重复候选</span></div>${p.rejected.length ? `<p class="notice warning">未识别内容：${esc(p.rejected.slice(0, 12).join('、'))}${p.rejected.length > 12 ? '…' : ''}${p.from === 'file' ? '（数据行序号）' : ''}，这些内容不会被加入。</p>` : ''}${p.skipped ? `<p class="notice">已跳过 ${p.skipped} 条关闭、失败或未付款记录。</p>` : ''}<div class="table-scroll"><table class="preview-table"><thead><tr><th>加入</th><th>日期</th><th>描述</th><th>金额</th><th>方向</th><th>分类</th></tr></thead><tbody>${p.rows.slice(start, start + 30).map((t, i) => `<tr><td><input type="checkbox" data-preview="selected" data-index="${i + start}" aria-label="加入第${i + start + 1}笔" ${t.selected ? 'checked' : ''} ${t.duplicate === 'exact' ? 'disabled' : ''}></td><td><input type="date" data-preview="date" data-index="${i + start}" aria-label="第${i + start + 1}笔日期" value="${esc(t.date)}"></td><td><input data-preview="title" data-index="${i + start}" aria-label="第${i + start + 1}笔描述" maxlength="200" value="${esc(t.title)}"><small>${t.duplicate === 'exact' ? '相同交易标识，已入账' : t.duplicate === 'possible' ? '与另一笔同日、同描述、同金额，请核对' : esc(t.reason || '请确认')}</small></td><td><input type="number" data-preview="amount" data-index="${i + start}" aria-label="第${i + start + 1}笔金额" min="0.01" max="100000000" step="0.01" value="${t.amount}"></td><td><select data-preview="type" data-index="${i + start}" aria-label="第${i + start + 1}笔方向">${options(C.types, t.type, typeNames)}</select></td><td><select data-preview="category" data-index="${i + start}" aria-label="第${i + start + 1}笔分类">${options(C.categories, t.category)}</select></td></tr>`).join('')}</tbody></table></div><div class="pagination"><span>第 ${p.page + 1} / ${Math.max(1, Math.ceil(p.rows.length / 30))} 页</span><div><button class="text-button" data-action="preview-prev" ${p.page === 0 ? 'disabled' : ''}>上一页</button><button class="text-button" data-action="preview-next" ${start + 30 >= p.rows.length ? 'disabled' : ''}>下一页</button></div></div><p id="preview-error" class="error-message" role="alert"></p><div class="dialog-actions"><button class="secondary" data-action="close">取消</button><button class="primary" data-action="preview-save" id="preview-save">确认加入 ${p.rows.filter(t => t.selected).length} 笔</button></div>`, true);
+    modal('检查一下，确认后入账', `<p class="dialog-intro">共 ${p.rows.length} 笔。逐笔检查，修改后也会重新检查重复；不确定的记录请核对后勾选。</p><p class="draft-summary" id="preview-summary" role="status"></p><p class="notice" id="draft-counts"></p>${p.rejected.length ? `<p class="notice warning">${p.from === 'ai' ? '需要补充：' : '未识别内容：'}${esc(p.rejected.slice(0, 12).join('、'))}${p.rejected.length > 12 ? '…' : ''}${p.from === 'file' ? '（数据行序号）' : ''}。${p.from === 'file' ? '未识别行不会加入。' : '可返回修改原话，或先保存已确认的流水。'}</p>` : ''}${p.skipped ? `<p class="notice">已跳过 ${p.skipped} 条关闭、失败或未付款记录。</p>` : ''}
+      <div class="preview-list">${p.rows.slice(start, start + 30).map((t, i) => {
+        const index = i + start, attrs = key => `data-preview="${key}" data-index="${index}" aria-label="第${index + 1}笔${({ date: '日期', title: '描述', amount: '金额', type: '方向', category: '分类' })[key]}"`;
+        return `<article class="preview-card"><div class="draft-head"><label class="check-label"><input type="checkbox" data-preview="selected" data-index="${index}" aria-label="加入第${index + 1}笔" ${t.selected ? 'checked' : ''}>加入第 ${index + 1} 笔</label><span class="tag draft-status"></span></div><div class="draft-fields"><label class="field wide">描述<input ${attrs('title')} maxlength="200" value="${esc(t.title)}"></label><label class="field">金额（元）<input ${attrs('amount')} type="number" inputmode="decimal" min="0.01" max="100000000" step="0.01" value="${t.amount}"></label><label class="field">日期<input ${attrs('date')} type="date" value="${esc(t.date)}"></label><label class="field">方向<select ${attrs('type')}>${options(C.types, t.type, typeNames)}</select></label><label class="field">分类<select ${attrs('category')}>${options(C.categories, t.category)}</select></label></div><p class="draft-reason"></p></article>`;
+      }).join('')}</div>
+      ${p.rows.length > 30 ? `<div class="pagination"><span>第 ${p.page + 1} / ${Math.ceil(p.rows.length / 30)} 页</span><div><button class="text-button" data-action="preview-prev" ${p.page === 0 ? 'disabled' : ''}>上一页</button><button class="text-button" data-action="preview-next" ${start + 30 >= p.rows.length ? 'disabled' : ''}>下一页</button></div></div>` : ''}<p id="preview-error" class="error-message" role="alert"></p><div class="dialog-actions">${p.from !== 'file' ? '<button class="secondary" data-action="ai-return">返回修改</button>' : '<button class="secondary" data-action="close">取消</button>'}<button class="primary" data-action="preview-save" id="preview-save"></button></div>`, true);
+    refreshPreview();
   }
   function savePreview() {
+    if (!preview) return;
+    if (refreshPreview()) { $('preview-error').textContent = '重复状态已更新，请检查当前勾选后再确认。'; return; }
     const selected = preview.rows.filter(t => t.selected && t.duplicate !== 'exact');
     if (!selected.length) { $('preview-error').textContent = '请先勾选需要加入的记录。'; return; }
     if (selected.some(t => !C.validDate(t.date) || !t.title.trim() || !Number.isFinite(t.amount) || t.amount <= 0 || t.amount > 1e8)) { $('preview-error').textContent = '请检查所选记录的日期、描述和金额。'; return; }
     if (state().transactions.length + selected.length > 50000) { $('preview-error').textContent = '当前版本最多保存 50000 笔，请先导出备份。'; return; }
     const batch = selected.map(t => { const { selected: unused, duplicate, rowIndex, reason, ...record } = t; return { ...record, review: false }; });
     const fp = preview.fingerprint, full = preview.rows.every(t => t.selected || t.duplicate === 'exact');
+    if (preview.from !== 'file' && !pendingImage) pendingText = '';
     close(); month = batch[0].date.slice(0, 7); view = 'ledger'; filter = 'all'; query = ''; page = 0;
     mutate(s => { s.transactions.push(...batch); if (fp && full) s.imports.push(fp); }, `已加入 ${batch.length} 笔记录，可逐笔编辑`, true);
   }
@@ -325,7 +384,22 @@
   }
   function restoreDialog() {
     modal('恢复本地备份', '<p class="dialog-intro">选择“有数”导出的 JSON 备份。先检查内容摘要，再决定是否替换当前账本。</p><input class="native-file" id="restore-file" type="file" accept=".json" aria-label="选择备份文件"><p class="error-message" id="restore-error" role="alert"></p>');
-    $('restore-file').onchange = async e => { const file = e.target.files[0]; if (!file) return; try { if (file.size > 25 * 1024 * 1024) throw new Error('备份超过 25 MB。'); const incoming = JSON.parse(await file.text()); if (!C.validateState(incoming)) throw new Error('备份字段不完整或数据无效，未修改原账本。'); modal('确认恢复这个账本', `<p class="dialog-intro">${esc(incoming.name)}：${incoming.budgets.length} 项预算、${incoming.transactions.length} 笔流水。恢复将替换真实账本${real ? '，同时下载当前账本备份' : ''}。</p><div class="dialog-actions"><button class="secondary" data-action="close">取消</button><button class="primary" id="confirm-restore">确认恢复</button></div>`); $('confirm-restore').onclick = () => { if (real) download(JSON.stringify(real, null, 2), `有数-恢复前备份-${C.localDate()}.json`, 'application/json'); real = incoming; mode = 'real'; migrated = false; persist(); close(); go('overview'); toast('账本已恢复'); }; } catch (err) { $('restore-error').textContent = err.message || '无法读取备份'; } };
+    const input = $('restore-file'); let readTask = 0;
+    input.onchange = async e => {
+      const task = ++readTask, file = e.target.files[0];
+      const active = () => task === readTask && $('restore-file') === input && $('dialog').open;
+      if (!file || !active()) return;
+      try {
+        if (file.size > 25 * 1024 * 1024) throw new Error('备份超过 25 MB。');
+        const text = await file.text();
+        if (!active()) return;
+        const incoming = JSON.parse(text);
+        if (!C.validateState(incoming)) throw new Error('备份字段不完整或数据无效，未修改原账本。');
+        modal('确认恢复这个账本', `<p class="dialog-intro">${esc(incoming.name)}：${incoming.budgets.length} 项预算、${incoming.transactions.length} 笔流水。恢复将替换真实账本${real ? '，同时下载当前账本备份' : ''}。</p><div class="dialog-actions"><button class="secondary" data-action="close">取消</button><button class="primary" id="confirm-restore">确认恢复</button></div>`);
+        $('confirm-restore').onclick = () => { if (real) download(JSON.stringify(real, null, 2), `有数-恢复前备份-${C.localDate()}.json`, 'application/json'); real = incoming; mode = 'real'; migrated = false; persist(); close(); go('overview'); toast('账本已恢复'); };
+      } catch (err) { if (active()) $('restore-error').textContent = err.message || '无法读取备份'; }
+      if (active()) input.value = '';
+    };
   }
   function help() {
     modal('每天少一点操作，每月多一点清楚', `<div class="help-copy"><p><strong>说一句或选一张图。</strong>Android 版填写自己的 DeepSeek API Key 后，可把主动输入的文字或选中的图片直接交给 DeepSeek 整理。结果先预览、可改可取消，不会自动入账。</p><p><strong>本地也能记。</strong>“昨天午饭32，打车28”可用本地规则离线识别；CSV / TXT 账单也在本机解析。</p><p><strong>账本留在设备。</strong>预算、历史流水、分类偏好不发送给 DeepSeek。更换设备前在“我的”导出 JSON 备份。</p><p><strong>计划不是付款。</strong>固定预算不会自动记成消费；省钱试算不代表钱已经存下。</p><p><strong>仍需确认。</strong>图片可能看不清，模型也可能识别错误。尤其核对金额、日期、退款、充值与重复交易。</p></div>`);
@@ -337,8 +411,11 @@
     const b = e.target.closest('[data-action]'); if (!b) return; const action = b.dataset.action, id = b.dataset.id;
     const actions = {
       close, help, onboard: onboarding, import: importDialog, goal: goalForm, profile: profileForm, restore: restoreDialog, 'quick-actions': quickActions, 'ai-settings': aiSettings,
-      'ai-key-clear': () => { globalThis.AndroidBridge?.clearAiKey?.(); aiSettings(); toast('已删除这台设备保存的 DeepSeek Key'); },
+      'ai-key-clear': () => { cancelAI(); globalThis.AndroidBridge?.clearAiKey?.(); render(); aiSettings(settingsReturn); toast('已删除这台设备保存的 DeepSeek Key'); },
       'image-pick': () => $('image-file')?.click(),
+      'image-send': sendImage, 'ai-return': returnToInput,
+      'ai-retry': () => pendingImage ? sendImage() : smartQuick(pendingText),
+      'ai-fix-key': () => aiSettings(pendingImage ? 'image' : 'text'),
       'local-parse': () => localQuick($('quick-input')?.value || pendingText),
       'budget-add': () => budgetForm(), 'budget-edit': () => budgetForm(id),
       budgets: () => { planTab = 'budgets'; go('plans'); }, 'budget-home': () => { planTab = 'budgets'; go('plans'); },
@@ -364,9 +441,11 @@
       e.preventDefault();
       if (!globalThis.AndroidBridge?.saveAiKey?.($('ai-key-input').value)) { toast('Key 保存失败，请检查格式后重试。'); return; }
       $('ai-key-input').value = '';
-      close(); toast('Key 已保存在本机，首次使用时验证');
-      if (pendingText) smartQuick(pendingText);
-      else render();
+      const returnTo = settingsReturn; settingsReturn = ''; render();
+      if (returnTo === 'image' && pendingImage) imagePreview();
+      else if (returnTo === 'text') quickActions();
+      else close();
+      toast('Key 已保存在本机，点击整理时才会发起请求');
       return;
     }
     if (e.target.id !== 'quick-form') return; e.preventDefault();
@@ -379,11 +458,12 @@
     if (el.dataset.preview) {
       const row = preview?.rows[Number(el.dataset.index)]; if (!row) return;
       row[el.dataset.preview] = el.dataset.preview === 'selected' ? el.checked : el.dataset.preview === 'amount' ? C.round(el.value) : el.value;
-      $('preview-save').textContent = `确认加入 ${preview.rows.filter(t => t.selected).length} 笔`; return;
+      refreshPreview(el.dataset.preview === 'selected' || el.dataset.preview === 'category' ? '' : row.id); return;
     }
     if (el.dataset.plan) updateExperiment(el);
   });
   document.addEventListener('input', e => {
+    if (e.target.id === 'quick-input') { pendingText = e.target.value; $('quick-count').textContent = `${pendingText.length}/1000`; return; }
     if (e.target.dataset.plan) { updateExperiment(e.target); return; }
     if (e.target.dataset.preview && ['title', 'date', 'amount'].includes(e.target.dataset.preview)) {
       const row = preview?.rows[Number(e.target.dataset.index)];
@@ -394,7 +474,7 @@
     const position = e.target.selectionStart; query = e.target.value; page = 0; render(); const input = $('ledger-search'); input.focus(); if (position !== null) input.setSelectionRange(position, position);
   });
   $('close-dialog').onclick = close;
-  $('dialog').addEventListener('cancel', () => { preview = null; imageTaskId++; aiRequestId++; if ($('ai-key-input')) $('ai-key-input').value = ''; });
+  $('dialog').addEventListener('cancel', e => { e.preventDefault(); close(); });
   window.addEventListener('hashchange', () => go(location.hash.slice(1)));
   hydrateIcons(); render();
 })();

@@ -53,3 +53,46 @@ test('不同交易号的同金额消费保留；退款共用订单号不会被�
   assert.equal(C.duplicateStatus({...refund, externalKey:'file:refund2:0'}, [refund]), 'possible');
   assert.equal(C.duplicateStatus(refund, [refund]), 'exact');
 });
+
+test('编辑草稿后重新发现批次内重复，取消重复行勾选', () => {
+  const rows = C.parseQuick('午饭32，打车28', {}, new Date(2026, 8, 7)).rows;
+  assert.equal(C.refreshDrafts(rows, []), true);
+  assert.ok(rows.every(row => row.selected));
+  rows[1].title = rows[0].title; rows[1].amount = rows[0].amount;
+  assert.equal(C.refreshDrafts(rows, [], rows[1].id), true);
+  assert.equal(rows[0].duplicate, ''); assert.equal(rows[0].selected, true);
+  assert.equal(rows[1].duplicate, 'possible'); assert.equal(rows[1].selected, false);
+});
+
+test('人工确认的重复候选保留勾选，重新编辑候选需再次确认', () => {
+  const existing = C.parseQuick('午饭32', {}, new Date(2026, 8, 7)).rows;
+  const rows = C.parseQuick('午饭32', {}, new Date(2026, 8, 7)).rows;
+  C.refreshDrafts(rows, existing);
+  assert.equal(rows[0].selected, false);
+  rows[0].selected = true;
+  assert.equal(C.refreshDrafts(rows, existing), false);
+  assert.equal(rows[0].selected, true);
+  assert.equal(C.refreshDrafts(rows, existing, rows[0].id), true);
+  assert.equal(rows[0].selected, false);
+});
+
+test('确定重复始终取消勾选，需核对的新草稿不默认选入', () => {
+  const existing = { id: 'old', date: '2026-09-07', title: '午饭', amount: 32, type: 'expense', externalKey: 'file:same:0' };
+  const rows = [{ ...existing, id: 'new', selected: true }, { ...existing, id: 'review', title: '城市小店', externalKey: '', review: true }];
+  C.refreshDrafts(rows, [existing]);
+  assert.equal(rows[0].duplicate, 'exact'); assert.equal(rows[0].selected, false);
+  assert.equal(rows[1].duplicate, ''); assert.equal(rows[1].selected, false);
+  rows[0].selected = true;
+  assert.equal(C.refreshDrafts(rows, [existing]), true);
+  assert.equal(rows[0].selected, false);
+});
+
+test('解除重复后保留未勾选状态，不替用户重新选入', () => {
+  const existing = C.parseQuick('午饭32', {}, new Date(2026, 8, 7)).rows;
+  const rows = C.parseQuick('午饭32', {}, new Date(2026, 8, 7)).rows;
+  C.refreshDrafts(rows, existing);
+  rows[0].amount = 35;
+  assert.equal(C.refreshDrafts(rows, existing, rows[0].id), true);
+  assert.equal(rows[0].duplicate, ''); assert.equal(rows[0].selected, false);
+  assert.equal(C.refreshDrafts(rows, existing), false);
+});
